@@ -28,8 +28,10 @@ Spanish and English.
   loop a section of bars; clear it to play the song normally; click to start anywhere.
 - **Feel**: tempo, a swing amount for each part, and a rhythm for the chords.
 - **Mute and solo**: next to each part’s tab; solo one or several parts to hear them alone.
-- **MIDI out**: play your instrument over USB with any combination of chords, melody, bass and
-  drums, each on its own channel.
+- **MIDI out, to instruments and Ableton Live**: send chords, melody, bass, drums and the
+  voice melody, each to its own port and channel: hardware synths over USB or tracks in Ableton
+  through a virtual port. Send MIDI clock so Ableton follows Enlace, or take the tempo from the
+Ableton project.
 - **Projects**: save the song to a file you can download and open later; the browser tab shows
   the project name.
 - **Export to WAV**: render the whole song, or the bars you choose, to an audio file.
@@ -126,7 +128,7 @@ verses; “Clear loop” removes it and the song plays normally. Click a bar to 
 Next to each part’s tab there is a mute button (speaker) and a solo button (S). When any part
 is soloed, only the soloed parts play; you can solo several at once, and a soloed part that is
 also muted stays silent. Parts silenced by someone else’s solo show a dimmed speaker. Mute and
-solo affect the browser sound; what is sent over MIDI is chosen in the MIDI menu.
+solo apply both to the browser sound and to what is sent over MIDI.
 
 ## Swing and rhythm
 
@@ -136,10 +138,30 @@ on. The chords can play as whole notes, quarters, a Charleston rhythm or eighths
 
 ## MIDI
 
-Plug your instrument in over USB and press “Connect instrument”. Choose what to send
-(progression, melody, bass, drums or any combination) and on which channel; drums use the
-General MIDI map on channel 10. You can keep the browser sound on as well, and silence the
-instrument at any time. Works in Chrome and Edge (Safari has no Web MIDI).
+Press “Connect MIDI” in the MIDI menu. Each part (progression, melody, bass, drums and voice)
+has a tick to send it, a destination port and a channel, so the bass can go to a synth over
+USB while the rest goes to Ableton. Drums are sent either to the 16 pads of an Ableton Drum
+Rack (counting from the bottom-left pad, note 36 (C1 in Ableton) by default, adjustable, with a button to test the pads) or with the General MIDI
+map, on channel 10 by default. The
+voice is sent as notes in the octave it sings, with the second voice when it is on (the lyrics
+stay in the browser). “MIDI clock” sends tempo, start and stop to one port, so your software
+follows Enlace. The other way round, “Take tempo from” listens to the MIDI clock arriving on an
+input (any input by default; a status shows “no clock”, “stopped” or the tempo) and sets Enlace’s tempo to the Ableton project’s (rounded to whole bpm, updated while
+Ableton plays); the tempo slider is locked meanwhile, and sending the clock is turned off so the
+two don’t loop. By default the browser only plays the parts that are not sent over MIDI (so
+nothing sounds twice); you can have it play everything or nothing but the voice. Chords go out
+as blocks; “Strum chords” spreads them like the guitar. You can silence MIDI at any time.
+Works in desktop Chrome and Edge (Safari has no Web MIDI); the menu is hidden on phones.
+
+To use it with **Ableton Live**: on a Mac, turn on the IAC Driver in Audio MIDI Setup (on
+Windows, create a port with loopMIDI); pick that port as the destination; in Ableton’s
+preferences enable “Track” (and “Sync” for the clock) on that input; if Enlace should take
+Ableton’s tempo, add a second IAC bus and enable “Sync” on Ableton’s output to it (the same bus
+both ways would send Ableton its own clock); then make one MIDI track
+per part, set “MIDI From” to the port and channel (not “All Ins” or “All Channels”), and Monitor
+to “In”. Keep “Track” off on Ableton’s IAC outputs, or it sends its own notes back to itself and
+they sound doubled. The same steps are in
+the MIDI menu.
 
 ## Projects
 

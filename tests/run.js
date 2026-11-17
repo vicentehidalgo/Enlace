@@ -262,7 +262,53 @@ eq(missing, 0, 'cobertura de voicings');
   eq(sent, [], 'tras parar no quedan note-off pendientes');
   Midi.panic();
   eq(sent.length, 32, 'pánico en los 16 canales');
+
+  // Puerto de destino: sin ese puerto disponible, va a la salida principal.
+  sent = []; clock = 10000;
+  Midi.note(5, 67, 400, 100, 10000, 'puerto-inexistente');
+  eq(sent[0], [0x94, 67, 100, 10000], 'nota con puerto: canal 5 a la salida disponible');
+  clock = 10500; Midi.flush();
+  eq(sent[1], [0x84, 67, 0, 10400], 'su note-off también');
+
+  // Reloj MIDI
+  sent = [];
+  Midi.clockStart(20000, 0);
+  eq(sent, [[0xFA, 20000]], 'reloj: start al empezar desde el principio');
+  sent = [];
+  Midi.clockStart(20000, 200);
+  eq(sent, [[0xF2, 200 & 0x7f, 200 >> 7, 20000], [0xFB, 20000]], 'reloj: posición y continue a mitad de canción');
+  sent = [];
+  Midi.clockTicks(30000, 12, 25);
+  eq([sent.length, sent[0], sent[11]], [12, [0xF8, 30000], [0xF8, 30275]], 'reloj: 12 pulsos por corchea');
+  sent = [];
+  Midi.clockStop();
+  eq(sent, [[0xFC, undefined]], 'reloj: stop');
+  // Tempo del reloj que llega (24 pulsos por negra)
+  {
+    const m = Midi.tempoMeter();
+    let bpm = null;
+    for (let i = 0; i < 24; i++) bpm = m.tick(1000 + i * 60000 / (120 * 24));
+    eq(bpm, null, 'reloj entrante: hace falta una negra de pulsos');
+    bpm = m.tick(1000 + 24 * 60000 / (120 * 24));
+    eq(Math.round(bpm * 10) / 10, 120, 'reloj entrante: 120 ppm');
+    let t = 5000;
+    for (let i = 0; i < 60; i++) { t += 60000 / (93.5 * 24) + (i % 2 ? .4 : -.4); bpm = m.tick(t); }
+    eq(Math.round(bpm * 10) / 10, 93.5, 'reloj entrante: 93,5 ppm con algo de vaivén');
+    t += 2000;
+    eq(m.tick(t), null, 'tras una pausa larga vuelve a medir');
+  }
+
+  // Percusión: General MIDI o pads de un Drum Rack (16 pads desde el primero)
+  eq(['kick', 'rim', 'snare', 'clap', 'hat', 'openhat', 'shaker', 'cowbell', 'clave'].map((i) => Drums.midiNote(i, 'gm')), [36, 37, 38, 39, 42, 46, 70, 56, 75], 'percusión GM');
+  eq(['kick', 'rim', 'snare', 'clap', 'hat', 'openhat', 'shaker', 'cowbell', 'clave'].map((i) => Drums.midiNote(i, 'rack', 36)), [36, 37, 38, 39, 42, 46, 44, 50, 51], 'Drum Rack desde C1: todo en los 16 pads');
+  eq(['kick', 'snare', 'hat', 'clave'].map((i) => Drums.midiNote(i, 'rack', 48)), [48, 50, 54, 63], 'Drum Rack desde otra nota (48)');
+  const pads = Object.values(Drums.INSTRUMENTS).map((x) => x.pad);
+  eq([new Set(pads).size === pads.length, pads.every((x) => x >= 0 && x < 16)], [true, true], 'un pad distinto por instrumento, dentro de los 16');
   Midi.attach(null);
+  sent = [];
+  Midi.note(1, 60, 100, 100, 0);
+  Midi.clockTicks(0, 3, 10);
+  eq(sent, [], 'sin salida no se envía nada');
 }
 
 

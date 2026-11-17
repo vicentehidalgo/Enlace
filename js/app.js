@@ -26,6 +26,7 @@
     solo: {},
     bassVerses: 1, bstanza: 0, playBass: true, bassStyle: 'root5', sendBass: true, midiBassCh: 3,
     help: null,
+    midiPorts: {}, midiDrumMap: 'rack', midiDrumPad: 36, sendVoice: false, midiVoiceCh: 5, midiClock: false, midiClockPort: null, midiFollow: false, midiTempoIn: null, midiLocal: null, midiStrum: false,
   };
   // Lo que es de la canción y viaja en el archivo del proyecto. El resto (idioma,
   // pestaña, instrumento a la vista, MIDI…) es del equipo y se queda en el navegador.
@@ -45,6 +46,11 @@
     state.sendMelody = state.midiSend !== 'chords';
     delete state.midiSend;
   }
+
+  // Sonido del navegador con MIDI: antes era «también en el navegador» sí o no.
+  // Ahora, por defecto, el navegador solo toca lo que no va por MIDI (si sonara en
+  // los dos sitios se oiría doble, con el desfase de cada uno).
+  if (!['unsent', 'all', 'none'].includes(state.midiLocal)) state.midiLocal = state.localSound === false ? 'none' : 'unsent';
 
   const MAX_VERSES = 8;
 
@@ -295,7 +301,7 @@
   function renderTransport() {
     $('transport').innerHTML = `
       <button class="primary" data-act="play" ${canPlay() ? '' : 'disabled'}>${ui.playing ? tx('■ Parar', '■ Stop') : tx('▶ Reproducir', '▶ Play')}</button>
-      <label class="bpm">${state.bpm} ${tx('ppm', 'bpm')} <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
+      <label class="bpm${following() ? ' is-ext' : ''}"${following() ? ` title="${tx('Tempo tomado del reloj MIDI que llega (menú MIDI)', 'Tempo taken from the incoming MIDI clock (MIDI menu)')}"` : ''}><span id="bpm-value">${state.bpm} ${tx('ppm', 'bpm')}</span>${following() ? ' <small class="ext-tag">MIDI</small>' : ''} <input type="range" id="c-bpm" min="40" max="240" step="1" value="${state.bpm}" aria-label="Tempo" ${following() ? 'disabled' : ''}></label>
       <button class="tr-more-toggle" data-act="tr-more" aria-expanded="${ui.trMore}" aria-controls="tr-more" aria-label="${tx('Más controles', 'More controls')}">⋯</button>
       <div class="tr-more" id="tr-more">
       <label class="bpm swing" title="${tx('Swing de la pestaña actual; cada parte tiene el suyo', 'Swing of the current tab; each part has its own')}">Swing <small class="swing-scope">${swingScope()}</small>
@@ -308,11 +314,7 @@
       <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>${tx('Deshacer', 'Undo')}</button>`;
     $('transport').classList.toggle('is-more', ui.trMore);
     $('c-bpm').oninput = (e) => {
-      state.bpm = Number(e.target.value);
-      e.target.parentElement.firstChild.textContent = state.bpm + tx(' ppm ', ' bpm ');
-      save();
-      applyFx();
-      if (state.tab === 'voice') renderVoice();
+      setBpm(Number(e.target.value));
     };
     $('c-swing').oninput = (e) => {
       state[swingKey()] = Number(e.target.value);
@@ -323,6 +325,61 @@
     };
     $('c-comp').onchange = (e) => { state.comp = e.target.value; updateSwingHint(); save(); };
     updateSwingHint();
+  }
+
+  function setBpm(v) {
+    state.bpm = v;
+    $('bpm-value').textContent = state.bpm + tx(' ppm', ' bpm');
+    $('c-bpm').value = v;
+    save();
+    applyFx();
+    if (state.tab === 'voice') renderVoice();
+  }
+
+  // Seguir el tempo de otro programa (Ableton) por el reloj MIDI que envía.
+  const following = () => Boolean(state.midiFollow && Midi.connected);
+  // Sin entrada elegida (o si ya no está) se escuchan todas.
+  function followTempo() {
+    if (!Midi.connected) return;
+    if (!state.midiFollow) { Midi.listen(null, null); ui.extBpm = null; return; }
+    const id = Midi.inputs().some((i) => i.id === state.midiTempoIn) ? state.midiTempoIn : null;
+    ui.tempoCand = null;
+    Midi.listen(id, onExtTempo);
+  }
+
+  // Estado de la entrada del reloj, para saber qué pasa si el tempo no llega.
+  function tempoStatus() {
+    if (!state.midiFollow) return ['', ''];
+    const st = Midi.stats;
+    if (!Midi.listening) return [tx('sin entrada', 'no input'), 'is-warn'];
+    if (!st.clocks) return [tx('sin reloj', 'no clock'), 'is-warn'];
+    if (performance.now() - st.lastClock > 1000) return [`${tx('parado', 'stopped')} · ${state.bpm}`, ''];
+    if (!ui.extBpm) return [tx('midiendo…', 'measuring…'), 'is-live'];
+    return [`${tx(ui.extBpm.toFixed(1).replace('.', ','), ui.extBpm.toFixed(1))} ${tx('ppm', 'bpm')}`, 'is-live'];
+  }
+  function showTempoStatus() {
+    const el = $('m-tempo-status');
+    if (!el) return;
+    const [text, cls] = tempoStatus();
+    el.textContent = text;
+    el.className = 'tempo-status ' + cls;
+    el.title = Midi.stats.from ? tx('Reloj desde ', 'Clock from ') + Midi.stats.from : '';
+  }
+  setInterval(() => { if (state.midiFollow && document.querySelector('.midi-menu[open]')) showTempoStatus(); }, 400);
+  // Se aplica cuando la medida se asienta (varios pulsos seguidos casi iguales) y
+  // se aparta del tempo actual, y como mucho dos veces por segundo: cada cambio
+  // de tempo vuelve a cantar la voz. Un tempo como 97,5 no oscila entre 97 y 98.
+  function onExtTempo(bpm) {
+    ui.extBpm = bpm;
+    if (!ui.tempoCand || Math.abs(bpm - ui.tempoCand.bpm) > .3) ui.tempoCand = { bpm, n: 0 };
+    ui.tempoCand.n += 1;
+    const v = Math.max(40, Math.min(240, Math.round(bpm)));
+    const t = performance.now();
+    if (ui.tempoCand.n >= 12 && Math.abs(bpm - state.bpm) >= .6 && v !== state.bpm && t - (ui.tempoAt || 0) > 500) {
+      ui.tempoAt = t;
+      setBpm(v);
+    }
+
   }
 
   const swingLabel = (v) => (v === 50 ? tx('recto', 'straight') : v + '%');
@@ -769,8 +826,8 @@
 
   function fireDrum(hit) {
     const { at } = hit;
-    if (hears('drums') && !browserMuted()) Sound.drum(hit.inst, hit.velocity, (at - performance.now()) / 1000);
-    if (state.sendDrums) Midi.note(state.midiDrumCh, Drums.INSTRUMENTS[hit.inst].midi, 80, hit.velocity, at);
+    if (hears('drums') && !browserMuted('drums')) Sound.drum(hit.inst, hit.velocity, (at - performance.now()) / 1000);
+    if (state.sendDrums && hears('drums')) Midi.note(state.midiDrumCh, Drums.midiNote(hit.inst, state.midiDrumMap, state.midiDrumPad), 80, hit.velocity, at, portOf('drums'));
     if (state.tab !== 'drums') return;
     setTimeout(() => {
       const dot = document.querySelector(`[data-dot="${hit.ringIndex}:${hit.step}"]`);
@@ -806,30 +863,47 @@
 
   // Salida de sonido: navegador, instrumento MIDI o ambos -----------------------
 
-  const browserMuted = () => Boolean(Midi.output) && !state.localSound;
+  const SENDS = { chords: 'sendChords', melody: 'sendMelody', bass: 'sendBass', drums: 'sendDrums' };
+  // ¿Calla el navegador esta parte? La voz cantada siempre suena aquí.
+  const browserMuted = (t) => Boolean(Midi.output) && t !== 'voice'
+    && (state.midiLocal === 'none' || (state.midiLocal === 'unsent' && Boolean(state[SENDS[t]])));
   const sendsChords = () => state.sendChords;
   const sendsMelody = () => state.sendMelody;
 
   function emitBass(midi, dur = .5, gain = .42, at = performance.now(), hear = true) {
-    if (hear && !browserMuted()) Sound.bass(midi, dur, gain, (at - performance.now()) / 1000);
-    if (state.sendBass) Midi.note(state.midiBassCh, midi, dur * 1000, 95, at);
+    if (hear && !browserMuted('bass')) Sound.bass(midi, dur, gain, (at - performance.now()) / 1000);
+    if (state.sendBass && hear) Midi.note(state.midiBassCh, midi, dur * 1000, 95, at, portOf('bass'));
   }
 
   function emitChord(midis, dur = 1.6, gain = .2, at = performance.now(), hear = true) {
     const inst = state.instrument === 'piano' ? 'piano' : 'guitar';
-    if (hear && !browserMuted()) Sound.chord(midis, inst, dur, gain, (at - performance.now()) / 1000);
-    if (sendsChords()) Midi.chord(state.midiChordCh, midis, dur * 1000, 80, at, inst === 'guitar' ? 22 : 0);
+    if (hear && !browserMuted('chords')) Sound.chord(midis, inst, dur, gain, (at - performance.now()) / 1000);
+    if (sendsChords() && hear) Midi.chord(state.midiChordCh, midis, dur * 1000, 80, at, inst === 'guitar' && state.midiStrum ? 22 : 0, portOf('chords'));
   }
 
   function emitNote(midi, dur = .4, gain = .32, at = performance.now(), hear = true) {
-    if (hear && !browserMuted()) Sound.note(midi, dur, gain, (at - performance.now()) / 1000);
-    if (sendsMelody()) Midi.note(state.midiMelodyCh, midi, dur * 1000, 100, at);
+    if (hear && !browserMuted('melody')) Sound.note(midi, dur, gain, (at - performance.now()) / 1000);
+    if (sendsMelody() && hear) Midi.note(state.midiMelodyCh, midi, dur * 1000, 100, at, portOf('melody'));
   }
 
-  function channelSelect(id, label, value) {
-    const opts = [...Array(16).keys()].map((c) =>
-      `<option value="${c + 1}" ${c + 1 === value ? 'selected' : ''}>${c + 1}</option>`).join('');
-    return `<label class="field"><span>${label}</span><select id="${id}">${opts}</select></label>`;
+  // Puerto de cada parte; sin elegir (o desenchufado), la salida principal.
+  const portOf = (t) => (state.midiPorts && state.midiPorts[t]) || null;
+
+  // La melodía de la voz (y su segunda voz) como notas MIDI, en la octava en que canta.
+  function emitVoiceMidi(p, i, s, vk, base, stepMs) {
+    if (!state.sendVoice || !Midi.output || !hears('voice')) return;
+    const bar = vmelOf(vk)[i];
+    const n = bar && noteRun(bar, s);
+    if (!n) return;
+    const off = M.snap(n.off, p.list);
+    const at = base + M.swingShift(s, state.swingVoice, stepMs);
+    const dur = M.spanMs(s, s + n.len, state.swingVoice, stepMs) * .95;
+    const port = portOf('voice');
+    Midi.note(state.midiVoiceCh, M.midiOf(off, key) + 12 * p.voiceOct, dur, 100, at, port);
+    const st = state.stanzas[vk];
+    if (state.harmony !== 'off' && st && st.harmony !== false) {
+      Midi.note(state.midiVoiceCh, M.midiOf(Voice.harmonize(off, key, state.harmony), key) + 12 * p.voiceOct, dur, 80, at, port);
+    }
   }
 
   function renderMidi() {
@@ -842,39 +916,144 @@
     }
     if (!Midi.connected) {
       el.innerHTML = `
-        <button data-act="midi-connect">${tx('Conectar instrumento', 'Connect instrument')}</button>
-        <p class="muted">${tx('Enchúfalo por USB antes de conectar. El navegador te pedirá permiso.', 'Plug it in over USB before connecting. The browser will ask for permission.')}</p>
+        <button data-act="midi-connect">${tx('Conectar MIDI', 'Connect MIDI')}</button>
+        <p class="muted">${tx('Instrumentos por USB o programas como Ableton Live, a través de un puerto virtual. El navegador te pedirá permiso.', 'Instruments over USB, or software such as Ableton Live through a virtual port. The browser will ask for permission.')}</p>
+        ${abletonHelp(false)}
         ${ui.midiError ? `<p class="midi-error">${ui.midiError}</p>` : ''}`;
       return;
     }
     const outs = Midi.list();
-    const current = Midi.output;
     if (!outs.length) {
-      el.innerHTML = `<p class="muted">${tx('No se detecta ningún instrumento. Conéctalo por USB y aparecerá aquí.', 'No instrument detected. Connect it over USB and it will appear here.')}</p>`;
+      el.innerHTML = `<p class="muted">${tx('No hay ninguna salida MIDI. Enchufa un instrumento por USB o crea un puerto virtual para tu programa de música:', 'No MIDI outputs. Plug in an instrument over USB or create a virtual port for your music software:')}</p>${tempoInHTML()}${abletonHelp(true)}`;
+      bindTempoIn();
       return;
     }
+    const main = Midi.output ? Midi.output.id : outs[0].id;
+    const portSelect = (id, value, label) => `<select id="${id}" aria-label="${label}">${outs.map((o) =>
+      `<option value="${escapeAttr(o.id)}" ${o.id === value ? 'selected' : ''}>${escapeText(o.name)}</option>`).join('')}</select>`;
+    const chSelect = (id, value, label) => `<select id="${id}" aria-label="${label}">${[...Array(16).keys()].map((c) =>
+      `<option value="${c + 1}" ${c + 1 === value ? 'selected' : ''}>${c + 1}</option>`).join('')}</select>`;
+    const effective = (t) => (outs.some((o) => o.id === portOf(t)) ? portOf(t) : main);
+    const rows = MIDI_PARTS.map(({ t, send, ch, name }) => {
+      const label = tx(...name);
+      return `<div class="midi-row${state[send] ? '' : ' is-off'}">
+        <label class="check"><input type="checkbox" data-midi-send="${send}" ${state[send] ? 'checked' : ''}> ${label}</label>
+        ${portSelect('m-port-' + t, effective(t), tx('Destino de ', 'Destination for ') + label)}
+        ${chSelect('m-ch-' + t, state[ch], tx('Canal de ', 'Channel for ') + label)}
+      </div>`;
+    }).join('');
+    const clockPort = outs.some((o) => o.id === state.midiClockPort) ? state.midiClockPort : main;
     el.innerHTML = `
-      <label class="field wide"><span>${tx('Instrumento', 'Instrument')}</span><select id="m-out">${outs.map((o) =>
-        `<option value="${escapeAttr(o.id)}" ${current && o.id === current.id ? 'selected' : ''}>${escapeText(o.name)}</option>`).join('')}</select></label>
-      <div class="field"><span>${tx('Enviar', 'Send')}</span><div class="seg" role="group">
-        ${[['sendChords', tx('Progresión', 'Progression')], ['sendMelody', tx('Melodía', 'Melody')], ['sendBass', tx('Bajo', 'Bass')], ['sendDrums', tx('Percusión', 'Drums')]].map(([k, label]) =>
-          `<button data-act="midi-send" data-v="${k}" aria-pressed="${state[k]}">${label}</button>`).join('')}
-      </div></div>
-      ${sendsChords() ? channelSelect('m-chord-ch', tx('Canal progresión', 'Progression channel'), state.midiChordCh) : ''}
-      ${sendsMelody() ? channelSelect('m-melody-ch', tx('Canal melodía', 'Melody channel'), state.midiMelodyCh) : ''}
-      ${state.sendBass ? channelSelect('m-bass-ch', tx('Canal bajo', 'Bass channel'), state.midiBassCh) : ''}
-      ${state.sendDrums ? channelSelect('m-drum-ch', tx('Canal percusión', 'Drum channel'), state.midiDrumCh) : ''}
-      <label class="check"><input type="checkbox" id="m-local" ${state.localSound ? 'checked' : ''}> ${tx('Sonar también en el navegador', 'Also play in the browser')}</label>
-      <button data-act="midi-panic">${tx('Silenciar instrumento', 'Silence instrument')}</button>`;
-    $('m-out').onchange = (e) => { Midi.select(e.target.value); state.midiOut = e.target.value; save(); };
-    $('m-local').onchange = (e) => { state.localSound = e.target.checked; save(); renderMutes(); };
-    const ch = (id, prop) => {
-      if ($(id)) $(id).onchange = (e) => { Midi.silence(); state[prop] = Number(e.target.value); save(); };
+      <div class="midi-table">
+        <div class="midi-row midi-th"><span>${tx('Parte', 'Part')}</span><span>${tx('Destino', 'Destination')}</span><span>${tx('Canal', 'Channel')}</span></div>
+        ${rows}
+      </div>
+      <div class="midi-row midi-drummap${state.sendDrums ? '' : ' is-off'}">
+        <span class="muted">${tx('Notas de percusión', 'Drum notes')}</span>
+        <select id="m-drum-map" aria-label="${tx('Notas de percusión', 'Drum notes')}">
+          <option value="rack" ${state.midiDrumMap === 'rack' ? 'selected' : ''}>${tx('Drum Rack de Ableton (16 pads)', 'Ableton Drum Rack (16 pads)')}</option>
+          <option value="gm" ${state.midiDrumMap === 'gm' ? 'selected' : ''}>General MIDI</option>
+        </select>
+        ${state.midiDrumMap === 'rack' ? `<select id="m-drum-start" aria-label="${tx('Primer pad', 'First pad')}" title="${tx('Nota del primer pad (abajo a la izquierda)', 'Note of the first pad (bottom left)')}">${[...Array(37).keys()].map((k) => {
+          const n = 24 + k;
+          return `<option value="${n}" ${n === state.midiDrumPad ? 'selected' : ''}>${n} · ${abletonNote(n)}</option>`;
+        }).join('')}</select>` : '<span></span>'}
+      </div>
+      ${state.midiDrumMap === 'rack' && state.sendDrums ? `<div class="midi-row midi-padtest"><span></span>
+        <span class="muted">${tx('Recorre los 16 pads desde el primero: debe empezar abajo a la izquierda.', 'Plays the 16 pads from the first: it should start at the bottom left.')}</span>
+        <button data-act="midi-pad-test">${tx('Probar pads', 'Test pads')}</button></div>` : ''}
+      <div class="midi-row midi-clock${state.midiClock ? '' : ' is-off'}">
+        <label class="check"${state.midiFollow ? ` title="${tx('Desactivado mientras Enlace sigue el tempo de otro programa', 'Off while Enlace follows another program’s tempo')}"` : ''}><input type="checkbox" id="m-clock" ${state.midiClock && !state.midiFollow ? 'checked' : ''} ${state.midiFollow ? 'disabled' : ''}> ${tx('Enviar reloj', 'Send clock')}</label>
+        ${portSelect('m-clock-port', clockPort, tx('Destino del reloj', 'Clock destination'))}
+        <span></span>
+      </div>
+      ${tempoInHTML()}
+      <p class="muted midi-note">${tx('Con el reloj, tu programa sigue el tempo de Enlace y arranca y para con él. La voz se envía como notas (sin letra).', 'With the clock, your software follows Enlace’s tempo and starts and stops with it. The voice is sent as notes (no lyrics).')}</p>
+      <div class="row">
+        <label class="field midi-local"><span>${tx('Sonido en el navegador', 'Sound in the browser')}</span><select id="m-local">
+          ${[['unsent', tx('Solo lo que no va por MIDI', 'Only what is not sent over MIDI')], ['all', tx('Todo (también lo que va por MIDI)', 'Everything (also what goes over MIDI)')], ['none', tx('Nada (solo la voz)', 'Nothing (only the voice)')]].map(([v, l]) =>
+            `<option value="${v}" ${state.midiLocal === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="check" title="${tx('Con la guitarra, las notas del acorde salen una tras otra como un rasgueo. Apagado, salen juntas.', 'With the guitar, the chord notes go out one after another like a strum. Off, they go out together.')}"><input type="checkbox" id="m-strum" ${state.midiStrum ? 'checked' : ''}> ${tx('Rasguear acordes', 'Strum chords')}</label>
+        <button data-act="midi-panic">${tx('Silenciar MIDI', 'Silence MIDI')}</button>
+      </div>
+      ${abletonHelp(false)}`;
+    $('m-local').onchange = (e) => { state.midiLocal = e.target.value; save(); renderMutes(); };
+    $('m-strum').onchange = (e) => { state.midiStrum = e.target.checked; save(); };
+    $('m-drum-map').onchange = (e) => { Midi.silence(); state.midiDrumMap = e.target.value; save(); renderMidi(); };
+    if ($('m-drum-start')) $('m-drum-start').onchange = (e) => { Midi.silence(); state.midiDrumPad = Number(e.target.value); save(); };
+    bindTempoIn();
+    $('m-clock').onchange = (e) => {
+      if (!e.target.checked && ui.playing && ui.playing.clock) { Midi.clockStop(state.midiClockPort); ui.playing.clock = false; }
+      state.midiClock = e.target.checked; save(); renderMidi();
     };
-    ch('m-chord-ch', 'midiChordCh');
-    ch('m-melody-ch', 'midiMelodyCh');
-    ch('m-drum-ch', 'midiDrumCh');
-    ch('m-bass-ch', 'midiBassCh');
+    $('m-clock-port').onchange = (e) => {
+      if (ui.playing && ui.playing.clock) { Midi.clockStop(state.midiClockPort); ui.playing.clock = false; }
+      state.midiClockPort = e.target.value; save();
+    };
+    MIDI_PARTS.forEach(({ t, ch }) => {
+      $('m-port-' + t).onchange = (e) => { Midi.silence(); state.midiPorts = { ...state.midiPorts, [t]: e.target.value }; save(); };
+      $('m-ch-' + t).onchange = (e) => { Midi.silence(); state[ch] = Number(e.target.value); save(); };
+    });
+    el.querySelectorAll('[data-midi-send]').forEach((box) => {
+      box.onchange = () => { Midi.silence(); state[box.dataset.midiSend] = box.checked; save(); renderMidi(); };
+    });
+  }
+
+  // Entrada: tomar el tempo del reloj MIDI de Ableton.
+  function tempoInHTML() {
+    const ins = Midi.inputs();
+    if (!ins.length) return `<p class="muted midi-note">${tx('Para tomar el tempo de Ableton hace falta una entrada MIDI (el mismo puerto virtual).', 'To take the tempo from Ableton you need a MIDI input (the same virtual port).')}</p>`;
+    const cur = ins.some((i) => i.id === state.midiTempoIn) ? state.midiTempoIn : '';
+    const [status, cls] = tempoStatus();
+    return `<div class="midi-row midi-follow${state.midiFollow ? '' : ' is-off'}">
+        <label class="check"><input type="checkbox" id="m-follow" ${state.midiFollow ? 'checked' : ''}> ${tx('Tomar el tempo', 'Take tempo from')}</label>
+        <select id="m-tempo-in" aria-label="${tx('Entrada del reloj', 'Clock input')}"><option value="" ${cur ? '' : 'selected'}>${tx('Cualquier entrada', 'Any input')}</option>${ins.map((o) =>
+          `<option value="${escapeAttr(o.id)}" ${o.id === cur ? 'selected' : ''}>${escapeText(o.name)}</option>`).join('')}</select>
+        <span class="tempo-status ${cls}" id="m-tempo-status">${status}</span>
+      </div>`;
+  }
+
+  function bindTempoIn() {
+    const box = $('m-follow');
+    if (!box) return;
+    box.onchange = () => {
+      state.midiFollow = box.checked;
+      // Enviar y recibir reloj a la vez por el mismo puerto formaría un bucle.
+      if (state.midiFollow && ui.playing && ui.playing.clock) { Midi.clockStop(state.midiClockPort); ui.playing.clock = false; }
+      ui.extBpm = null;
+      save();
+      followTempo();
+      renderMidi();
+      renderTransport();
+    };
+    $('m-tempo-in').onchange = (e) => { state.midiTempoIn = e.target.value || null; save(); ui.extBpm = null; followTempo(); renderMidi(); };
+  }
+
+  // Nombre de nota como lo muestra Ableton (Do central = C3): 36 → C1.
+  const abletonNote = (n) => ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][n % 12] + (Math.floor(n / 12) - 2);
+
+  const MIDI_PARTS = [
+    { t: 'chords', send: 'sendChords', ch: 'midiChordCh', name: ['Progresión', 'Progression'] },
+    { t: 'melody', send: 'sendMelody', ch: 'midiMelodyCh', name: ['Melodía', 'Melody'] },
+    { t: 'bass', send: 'sendBass', ch: 'midiBassCh', name: ['Bajo', 'Bass'] },
+    { t: 'drums', send: 'sendDrums', ch: 'midiDrumCh', name: ['Percusión', 'Drums'] },
+    { t: 'voice', send: 'sendVoice', ch: 'midiVoiceCh', name: ['Voz', 'Voice'] },
+  ];
+
+  // Cómo llevar el MIDI a Ableton Live (o a otro programa) con un puerto virtual.
+  function abletonHelp(open) {
+    return `<details class="midi-help"${open ? ' open' : ''}>
+      <summary>${tx('Cómo conectarlo con Ableton Live', 'How to connect it to Ableton Live')}</summary>
+      <ol>
+        <li>${tx('<b>Mac:</b> abre «Configuración de Audio MIDI», menú Ventana › Mostrar estudio MIDI, doble clic en «Driver IAC» y marca «El dispositivo está conectado». <b>Windows:</b> instala loopMIDI y crea un puerto.', '<b>Mac:</b> open “Audio MIDI Setup”, Window › Show MIDI Studio, double-click “IAC Driver” and tick “Device is online”. <b>Windows:</b> install loopMIDI and create a port.')}</li>
+        <li>${tx('Recarga esta página, pulsa «Conectar MIDI» y elige ese puerto como destino de las partes que quieras.', 'Reload this page, press “Connect MIDI” and pick that port as the destination of the parts you want.')}</li>
+        <li>${tx('En Ableton, Preferencias › Link, Tempo y MIDI: activa «Pista» en la entrada del puerto (y «Sinc.» si envías el reloj).', 'In Ableton, Preferences › Link, Tempo & MIDI: turn on “Track” for the port’s input (and “Sync” if you send the clock).')}</li>
+        <li>${tx('Crea una pista MIDI por parte con un instrumento, «MIDI From» ese puerto y su canal, y Monitor en «In».', 'Create one MIDI track per part with an instrument, “MIDI From” that port and its channel, and Monitor set to “In”.')}</li>
+        <li>${tx('Para que Enlace tome el tempo del proyecto, usa un <b>segundo bus</b> para la vuelta: en «Driver IAC» pulsa + para añadir «Bus 2». En Ableton activa «Sinc.» en la <b>salida</b> «IAC Driver (Bus 2)» (y no en su entrada), y aquí marca «Tomar el tempo». Si usas el mismo bus en los dos sentidos, Ableton recibe su propio reloj. El tempo llega mientras Ableton reproduce; si pone «sin reloj», revisa el «Sinc.» de esa salida.', 'For Enlace to take the project tempo, use a <b>second bus</b> for the way back: in “IAC Driver” press + to add “Bus 2”. In Ableton turn on “Sync” for the <b>output</b> “IAC Driver (Bus 2)” (not its input), and tick “Take tempo from” here. With the same bus both ways, Ableton receives its own clock. The tempo arrives while Ableton plays; if it says “no clock”, check “Sync” on that output.')}</li>
+        <li>${tx('Para la percusión, pon un Drum Rack en la pista de su canal y elige «Drum Rack de Ableton». Enlace toca los 16 pads contando desde el de abajo a la izquierda: bombo, aro, caja, palmas…; la maraca va a la pandereta y la clave al ride. El primer pad de un Drum Rack suele ser la nota 36 (C1 en Ableton); si tu kit empieza en otra, cámbiala y usa «Probar pads» para comprobarlo. La pista del Drum Rack debe recibir solo el canal de la percusión (10), no «All Channels»: si no, le llegan también los acordes, la melodía y el bajo.', 'For drums, put a Drum Rack on the track for its channel and choose “Ableton Drum Rack”. Enlace plays the 16 pads counting from the bottom left: kick, rimshot, snare, clap…; the shaker goes to the tambourine and the clave to the ride. A Drum Rack’s first pad is usually note 36 (C1 in Ableton); if your kit starts on another, change it and use “Test pads” to check. The Drum Rack track must receive only the drum channel (10), not “All Channels”, or it also gets the chords, melody and bass.')}</li>
+        <li>${tx('Si oyes notas dobles o rebotadas: en las preferencias de Ableton deja apagado «Pista» en las <b>salidas</b> IAC (si no, Ableton se reenvía sus propias notas), pon cada pista con «MIDI From» en el bus y canal concretos (no «All Ins» ni «All Channels») y deja «Sonido en el navegador» en «Solo lo que no va por MIDI».', 'If you hear doubled or bouncing notes: in Ableton’s preferences keep “Track” off on the IAC <b>outputs</b> (otherwise Ableton sends its own notes back to itself), set each track’s “MIDI From” to the specific bus and channel (not “All Ins” or “All Channels”), and leave “Sound in the browser” on “Only what is not sent over MIDI”.')}</li>
+      </ol>
+    </details>`;
   }
 
   const escapeText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -884,6 +1063,7 @@
     try {
       await Midi.connect(state.midiOut);
       state.midiOn = true;
+      followTempo();
       ui.midiError = null;
     } catch (e) {
       state.midiOn = false;
@@ -902,7 +1082,9 @@
       const found = outs.find((o) => o.id === state.midiOut) || outs[0];
       if (found) Midi.select(found.id);
     }
+    if (state.midiFollow && !Midi.listening) followTempo();
     renderMidi();
+    renderTransport();
   };
 
   // Voz ------------------------------------------------------------------------
@@ -1724,15 +1906,12 @@
         const sl = tx('Solo de ', 'Solo ') + tx(...name);
         solo.setAttribute('aria-label', sl);
         solo.title = sl + tx(' (puedes poner varias partes en solo)', ' (you can solo several parts)');
-        solo.disabled = t !== 'voice' && browserMuted();
       }
-      // La voz no va por MIDI: suena en el navegador aunque el resto no.
-      const blocked = t !== 'voice' && browserMuted();
-      btn.disabled = blocked;
+      // Mute y solo valen para el navegador y para el MIDI.
       btn.setAttribute('aria-pressed', String(off));
       const label = tx('Silenciar ', 'Mute ') + tx(...name);
       btn.setAttribute('aria-label', label);
-      btn.title = blocked ? tx('El sonido del navegador está apagado en el menú MIDI', 'Browser sound is turned off in the MIDI menu') : label;
+      btn.title = label;
     });
   }
 
@@ -1865,7 +2044,6 @@
     'voice-p'(el) { shiftVoicing('p', Number(el.dataset.d)); },
     play() { if (ui.playing) stop(); else play(); },
     'midi-connect'() { connectMidi(); },
-    'midi-send'(el) { Midi.silence(); state[el.dataset.v] = !state[el.dataset.v]; save(); renderMidi(); },
     'drum-preset'(el) {
       snapshot();
       state.rings = Drums.presetRings(Drums.PRESETS[Number(el.dataset.i)]);
@@ -1905,6 +2083,11 @@
     },
     'toggle-drums'() { state.playDrums = !state.playDrums; save(); renderMutes(); },
     'midi-panic'() { Midi.panic(); },
+    // Toca los 16 pads del Drum Rack en orden, para ver dónde empieza.
+    'midi-pad-test'() {
+      const t0 = performance.now() + 50;
+      for (let k = 0; k < 16; k++) Midi.note(state.midiDrumCh, state.midiDrumPad + k, 150, 100, t0 + k * 220, portOf('drums'));
+    },
     'toggle-loop'() { state.loop = !state.loop; save(); renderStrip(); },
     'toggle-chords'() { state.playChords = !state.playChords; save(); renderMutes(); },
     'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMutes(); },
@@ -2151,6 +2334,12 @@
       const dur = M.spanMs(s, s + n.len, state.swingMelody, stepMs) * .92 / 1000;
       emitNote(M.midiOf(n.off, key), dur, .32, base + M.swingShift(s, state.swingMelody, stepMs), hears('melody'));
     }
+    emitVoiceMidi(p, i, s, vk, base, stepMs);
+    // Reloj MIDI: Ableton (u otro programa) sigue el tempo y arranca con Enlace.
+    if (state.midiClock && !state.midiFollow && Midi.output) {
+      if (!p.clock) { Midi.clockStart(base, (g * M.STEPS + s) * 2, state.midiClockPort); p.clock = true; }
+      Midi.clockTicks(base, 12, stepMs / 12, state.midiClockPort);
+    }
     setTimeout(() => {
       if (ui.playing !== p) return;
       if (s === 0) { highlight(i, mk, vk, bk); p.barSeen = performance.now(); p.shownG = g; }
@@ -2232,7 +2421,8 @@
     // Con voz lista se deja margen para que entren sus primeras consonantes.
     const lead = vb === 0 && takeFor(vk) ? Voice.LEAD * 1000 : 0;
     const next = performance.now() + 40 + lead;
-    ui.playing = { g, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, shownG: g, voices: [], voicePend: { at: next, vk, vb, jump: false } };
+    const voiceOct = state.sendVoice && chords.length ? voicePlan().oct : 0;
+    ui.playing = { g, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, shownG: g, voices: [], voicePend: { at: next, vk, vb, jump: false }, voiceOct, clock: false };
     renderTransport();
     renderTimeline();
     animateHand();
@@ -2242,6 +2432,7 @@
   function stop(natural = false) {
     if (!ui.playing) return;
     if (!natural) ui.playing.voices.forEach((v) => v.node.stop());
+    if (ui.playing.clock) Midi.clockStop(state.midiClockPort);
     ui.playing = null;
     markVoiceNote(-1, -1, -1);
     Midi.silence();

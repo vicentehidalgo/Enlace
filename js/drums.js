@@ -4,18 +4,27 @@
   'use strict';
 
   // midi: mapa de percusión General MIDI. family: color del anillo.
+  // midi: nota General MIDI. pad: casilla en un Drum Rack de 16 pads como los de
+  // Ableton (0 = abajo a la izquierda, por filas), que sigue el orden GM desde el
+  // primer pad: bombo, aro, caja, palmas / caja, bombo, charles, tom grave /
+  // pandereta, tom grave, charles abierto, tom medio / tom agudo, crash, cencerro, ride.
+  // La maraca va a la pandereta y la clave al ride, que no tienen pad propio.
   const INSTRUMENTS = {
-    kick: { name: 'Bombo', midi: 36, family: 'low' },
-    tom: { name: 'Tom', midi: 45, family: 'low' },
-    snare: { name: 'Caja', midi: 38, family: 'mid' },
-    clap: { name: 'Palmas', midi: 39, family: 'mid' },
-    rim: { name: 'Aro', midi: 37, family: 'mid' },
-    hat: { name: 'Charles', midi: 42, family: 'metal' },
-    openhat: { name: 'Charles abierto', midi: 46, family: 'metal' },
-    shaker: { name: 'Maraca', midi: 70, family: 'metal' },
-    cowbell: { name: 'Cencerro', midi: 56, family: 'wood' },
-    clave: { name: 'Clave', midi: 75, family: 'wood' },
+    kick: { name: 'Bombo', midi: 36, pad: 0, family: 'low' },
+    tom: { name: 'Tom', midi: 45, pad: 9, family: 'low' },
+    snare: { name: 'Caja', midi: 38, pad: 2, family: 'mid' },
+    clap: { name: 'Palmas', midi: 39, pad: 3, family: 'mid' },
+    rim: { name: 'Aro', midi: 37, pad: 1, family: 'mid' },
+    hat: { name: 'Charles', midi: 42, pad: 6, family: 'metal' },
+    openhat: { name: 'Charles abierto', midi: 46, pad: 10, family: 'metal' },
+    shaker: { name: 'Maraca', midi: 70, pad: 8, family: 'metal' },
+    cowbell: { name: 'Cencerro', midi: 56, pad: 14, family: 'wood' },
+    clave: { name: 'Clave', midi: 75, pad: 15, family: 'wood' },
   };
+
+  // Nota MIDI de un instrumento: General MIDI o el pad de un Drum Rack que empieza en `start`.
+  const midiNote = (inst, map = 'gm', start = 36) =>
+    (map === 'rack' ? start + INSTRUMENTS[inst].pad : INSTRUMENTS[inst].midi);
 
   const GATES = {
     free: 'Libre',
@@ -166,7 +175,7 @@
   }
 
   globalThis.Drums = {
-    INSTRUMENTS, GATES, PRESETS, MAX_RINGS, MAX_STEPS,
+    INSTRUMENTS, GATES, PRESETS, MAX_RINGS, MAX_STEPS, midiNote,
     euclid, rotate, necklaceName, presetRings, invent, mutate, barHits, swungPos,
   };
 })();
