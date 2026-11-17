@@ -25,6 +25,7 @@
     prog: [], name: '', melVerses: 1, mstanza: 0, region: null,
     solo: {},
     bassVerses: 1, bstanza: 0, playBass: true, bassStyle: 'root5', sendBass: true, midiBassCh: 3,
+    help: null,
   };
   // Lo que es de la canción y viaja en el archivo del proyecto. El resto (idioma,
   // pestaña, instrumento a la vista, MIDI…) es del equipo y se queda en el navegador.
@@ -90,7 +91,14 @@
     sel: state.prog.length - 1, preview: null, previewG: 0, previewP: 0,
     more: false, undo: [], seed: Date.now() % 100000, cursor: null, playing: null, midiError: null,
     voiceParts: [], voiceTimer: 0, fileMsg: null, startBar: 0, copyPick: false,
+    trMore: false, folds: { presets: true },
   };
+
+  // En el móvil la interfaz se compacta: menos texto de ayuda, menos sugerencias.
+  const PHONE = window.matchMedia ? window.matchMedia('(max-width: 600px)') : { matches: false };
+  const isPhone = () => PHONE.matches;
+  const showHelp = () => (state.help === null || state.help === undefined ? !isPhone() : state.help);
+  function applyHelp() { document.body.classList.toggle('hide-help', !showHelp()); }
 
   let key;
   let catalog;
@@ -244,17 +252,20 @@
 
     $('controls').innerHTML = `
       <select id="c-tonic" aria-label="${tx('Tónica', 'Tonic')}">${tonics}</select>
-      <select id="c-scale" class="wide" aria-label="${tx('Escala o modo', 'Scale or mode')}">${scales}</select>
+      <select id="c-scale" class="wide" aria-label="${tx('Escala o modo', 'Scale or mode')}">${scales}</select>`;
+    $('chord-opts').innerHTML = `
       ${seg('level', [[0, tx('Tríadas', 'Triads')], [1, tx('Con 7ª', 'Sevenths')], [2, tx('Todos', 'All')]], state.level)}
       ${seg('instrument', [['guitar', tx('Guitarra', 'Guitar')], ['piano', 'Piano'], ['both', tx('Ambos', 'Both')]], state.instrument)}`;
     $('options').innerHTML = `
       <div class="field"><span>${tx('Notas', 'Note names')}</span>${seg('notation', [['latin', 'Do Re Mi'], ['intl', 'C D E']], state.notation)}</div>
       <label class="check"><input type="checkbox" id="c-outside" ${state.outside ? 'checked' : ''}> ${tx('Sugerir fuera de escala', 'Suggest chords outside the scale')}</label>
-      <label class="check"><input type="checkbox" id="c-smooth" ${state.smooth ? 'checked' : ''}> ${tx('Enlazar posiciones', 'Link voicings smoothly')}</label>`;
+      <label class="check"><input type="checkbox" id="c-smooth" ${state.smooth ? 'checked' : ''}> ${tx('Enlazar posiciones', 'Link voicings smoothly')}</label>
+      <label class="check"><input type="checkbox" id="c-help" ${showHelp() ? 'checked' : ''}> ${tx('Mostrar ayuda y leyendas', 'Show help and legends')}</label>`;
     $('c-tonic').onchange = (e) => { stop(); state.tonic = Number(e.target.value); ui.preview = null; update(); };
     $('c-scale').onchange = (e) => { stop(); state.scale = e.target.value; ui.preview = null; update(); };
     $('c-outside').onchange = (e) => { state.outside = e.target.checked; update(); };
     $('c-smooth').onchange = (e) => { state.smooth = e.target.checked; update(); };
+    $('c-help').onchange = (e) => { state.help = e.target.checked; save(); applyHelp(); };
   }
 
   // Progresión -----------------------------------------------------------------
@@ -285,13 +296,17 @@
     $('transport').innerHTML = `
       <button class="primary" data-act="play" ${canPlay() ? '' : 'disabled'}>${ui.playing ? tx('■ Parar', '■ Stop') : tx('▶ Reproducir', '▶ Play')}</button>
       <label class="bpm">${state.bpm} ${tx('ppm', 'bpm')} <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
+      <button class="tr-more-toggle" data-act="tr-more" aria-expanded="${ui.trMore}" aria-controls="tr-more" aria-label="${tx('Más controles', 'More controls')}">⋯</button>
+      <div class="tr-more" id="tr-more">
       <label class="bpm swing" title="${tx('Swing de la pestaña actual; cada parte tiene el suyo', 'Swing of the current tab; each part has its own')}">Swing <small class="swing-scope">${swingScope()}</small>
         <input type="range" id="c-swing" min="50" max="75" step="1" value="${state[swingKey()]}" aria-label="Swing ${swingScope()}"> <span id="swing-value">${swingLabel(state[swingKey()])}</span></label>
-      <select id="c-comp" aria-label="${tx('Ritmo de los acordes', 'Chord rhythm')}">${Object.entries(M.COMP).map(([id, c]) =>
-        `<option value="${id}" ${id === state.comp ? 'selected' : ''}>${tr(c.name)}</option>`).join('')}</select>
+      <label class="field tr-comp"><span class="phone-only">${tx('Ritmo de los acordes', 'Chord rhythm')}</span><select id="c-comp" aria-label="${tx('Ritmo de los acordes', 'Chord rhythm')}">${Object.entries(M.COMP).map(([id, c]) =>
+        `<option value="${id}" ${id === state.comp ? 'selected' : ''}>${tr(c.name)}</option>`).join('')}</select></label>
+      <button data-act="clear" ${chords.length ? '' : 'disabled'}>${tx('Vaciar', 'Clear')}<span class="phone-only"> ${tx('la progresión', 'the progression')}</span></button>
+      </div>
       <button data-act="toggle-loop" aria-pressed="${state.loop}" title="${tx('Repite la canción entera. Un bucle elegido en la línea de tiempo se repite siempre.', 'Repeats the whole song. A loop picked on the timeline always repeats.')}">${tx('Bucle', 'Loop')}</button>
-      <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>${tx('Deshacer', 'Undo')}</button>
-      <button data-act="clear" ${chords.length ? '' : 'disabled'}>${tx('Vaciar', 'Clear')}</button>`;
+      <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>${tx('Deshacer', 'Undo')}</button>`;
+    $('transport').classList.toggle('is-more', ui.trMore);
     $('c-bpm').oninput = (e) => {
       state.bpm = Number(e.target.value);
       e.target.parentElement.firstChild.textContent = state.bpm + tx(' ppm ', ' bpm ');
@@ -376,7 +391,7 @@
     const b = dedupe(suggest({ ...args, candidates: outside }), 1);
     const currentV = voicings[sel];
 
-    const nIn = ui.more ? a.length : Math.min(a.length, 6);
+    const nIn = ui.more ? a.length : Math.min(a.length, isPhone() ? 4 : 6);
     const nOut = ui.more ? 8 : 2;
     const current = chords[sel];
     const title = current
@@ -570,7 +585,9 @@
       <div class="panel-head">
         ${stanzaBar('b')}
         <div class="row">
-          ${seg('bass-style', styles, state.bassStyle)}
+          <span class="no-phone">${seg('bass-style', styles, state.bassStyle)}</span>
+          <select id="c-bass-style" class="phone-only" aria-label="${tx('Estilo del bajo', 'Bass style')}">${styles.map(([id, name]) =>
+            `<option value="${id}" ${id === state.bassStyle ? 'selected' : ''}>${name}</option>`).join('')}</select>
           <button class="primary" data-act="bass-generate">${tx('Proponer línea', 'Suggest a line')}</button>
           <button data-act="bass-clear">${tx('Borrar', 'Clear')}</button>
         </div>
@@ -579,6 +596,7 @@
       <p class="muted help">${tx('Elige un estilo y pulsa «Proponer línea» para que el bajo siga los acordes, o escribe las notas a mano: cada una suena hasta la siguiente. Cada estrofa suena en una vuelta de la progresión, con independencia de las de la melodía y la letra.', 'Pick a style and press “Suggest a line” so the bass follows the chords, or write the notes by hand: each lasts until the next. Each verse plays over one pass of the progression, independently of the melody and lyrics verses.')}</p>
       <div class="mel-scroll">${gridHTML('b')}</div>`;
     el.querySelector('.mel-scroll').scrollLeft = left;
+    $('c-bass-style').onchange = (e) => { state.bassStyle = e.target.value; save(); renderBass(); };
   }
 
   function melodyHints(list, track) {
@@ -626,10 +644,17 @@
       `<button class="preset" data-act="preset" data-i="${i}"><b>${tr(p.name)}</b><span>${p.chords.map((c) => c.roman).join(' – ')}</span></button>`);
   }
 
+  // Título que, en el móvil, pliega y despliega su panel.
+  function foldHead(id, title) {
+    const folded = Boolean(ui.folds[id]);
+    $(id).classList.toggle('is-folded', folded);
+    return `<h2><button class="fold-head" data-act="fold" data-v="${id}" aria-expanded="${!folded}">${title}</button></h2>`;
+  }
+
   function renderField() {
     const list = [...catalog.values()].filter((c) => c.origin.kind === 'scale' && levelAllows(c));
     $('field').innerHTML = `
-      <div class="panel-head"><h2>${tx('Acordes de la escala', 'Chords in the scale')}</h2>
+      <div class="panel-head">${foldHead('field', tx('Acordes de la escala', 'Chords in the scale'))}
         <p class="scale-inline">${key.notes.map((n) => noteLabel(n)).join(' ')}</p></div>
       <div class="fieldchips">${list.map((c) =>
         `<button class="fc fn-${c.fn}" data-act="add" data-id="${c.id}" aria-label="${tx('Añadir', 'Add')} ${chordLabel(c)}"><span class="roman">${c.roman}</span>${nameHTML(c)}</button>`).join('')}</div>`;
@@ -637,7 +662,7 @@
 
   function renderPresets() {
     const list = presetButtons();
-    $('presets').innerHTML = `<div class="panel-head"><h2>${tx('Progresiones conocidas', 'Well-known progressions')}</h2></div>
+    $('presets').innerHTML = `<div class="panel-head">${foldHead('presets', tx('Progresiones conocidas', 'Well-known progressions'))}</div>
       ${list.length ? `<div class="presets">${list.join('')}</div>`
         : `<p class="muted">${tx('No hay progresiones guardadas para esta escala. Construye la tuya con las sugerencias.', 'No saved progressions for this scale. Build your own from the suggestions.')}</p>`}`;
   }
@@ -1099,9 +1124,11 @@
     const count = ip ? state[ip.count] : stanzaCount();
     const cur = ip ? state[ip.sel] : state.stanza;
     const chips = Array.from({ length: count }, (x, k) =>
-      `<button class="stanza-chip" data-act="stanza" data-part="${part}" data-v="${k}" data-k="${k}" aria-pressed="${k === cur}"${count > 1 ? ` title="${tx('Arrastra para cambiar el orden', 'Drag to reorder')}"` : ''}>${tx('Estrofa', 'Verse')} ${k + 1}</button>`).join('');
+      `<button class="stanza-chip" data-act="stanza" data-part="${part}" data-v="${k}" data-k="${k}" aria-pressed="${k === cur}" aria-label="${tx('Estrofa', 'Verse')} ${k + 1}"${count > 1 ? ` title="${tx('Arrastra para cambiar el orden', 'Drag to reorder')}"` : ''}><span class="no-phone">${tx('Estrofa', 'Verse')} </span>${k + 1}</button>`).join('');
+    // En el móvil las estrofas son solo números y pasan a otra línea si no caben.
     return `<div class="row">
-          <div class="seg" role="group" aria-label="${tx('Estrofas', 'Verses')}">${chips}</div>
+          <span class="muted phone-only stanza-label">${tx('Estrofa', 'Verse')}</span>
+          <div class="seg stanza-seg" role="group" aria-label="${tx('Estrofas', 'Verses')}">${chips}</div>
           <button data-act="stanza-add" data-part="${part}" ${count >= MAX_STANZAS ? 'disabled' : ''} title="${tx('Añade una estrofa vacía al final', 'Adds an empty verse at the end')}">${tx('+ Estrofa', '+ Verse')}</button>
           <button data-act="stanza-dup" data-part="${part}" ${count >= MAX_STANZAS ? 'disabled' : ''} title="${tx(`Copia la estrofa ${cur + 1} justo después de ella`, `Copies verse ${cur + 1} right after it`)}">${tx('Duplicar', 'Duplicate')}</button>
           ${count > 1 ? `<button data-act="stanza-remove" data-part="${part}" title="${tx('Quitar la estrofa', 'Remove verse')} ${cur + 1}">${tx('Quitar', 'Remove')}</button>` : ''}
@@ -1514,8 +1541,9 @@
   function renderTimeline() {
     const el = $('timeline');
     if (!el) return;
+    const playBtn = `<button class="primary tl-play" data-act="play" ${canPlay() ? '' : 'disabled'} aria-label="${ui.playing ? tx('Parar', 'Stop') : tx('Reproducir', 'Play')}">${ui.playing ? '■' : '▶'}</button>`;
     if (!chords.length) {
-      el.innerHTML = `<p class="muted tl-empty">${tx('La línea de tiempo aparece cuando hay una progresión.', 'The timeline appears once there is a progression.')}</p>`;
+      el.innerHTML = `${playBtn}<p class="muted tl-empty">${tx('La línea de tiempo aparece cuando hay una progresión.', 'The timeline appears once there is a progression.')}</p>`;
       return;
     }
     const bars = barsPerPass();
@@ -1539,7 +1567,10 @@
     }).join('');
     const pct = (g) => (g / total * 100) + '%';
     const start = startBarFor();
+    // Muchos compases en poco ancho: los nombres de acorde no caben y se quitan.
+    el.classList.toggle('is-dense', el.clientWidth / total < 34);
     el.innerHTML = `
+      ${playBtn}
       <div class="tl-side">
         <span class="tl-time" id="tl-time">${clock((p ? p.shownG : start) * barSec)}<small> / ${clock(total * barSec)}</small></span>
         <span class="muted tl-bars-count">${total} ${tx('compases', 'bars')}</span>
@@ -1554,7 +1585,7 @@
       <div class="tl-side tl-right">
         ${r ? `<span class="tl-loop-label">${tx('Bucle', 'Loop')} ${tx('c.', 'bars')} ${r.from + 1}–${r.to + 1}</span>
           <button data-act="region-clear">${tx('Quitar bucle', 'Clear loop')}</button>`
-          : `<span class="muted">${tx('Arrastra para hacer un bucle', 'Drag to make a loop')}</span>`}
+          : `<span class="muted tl-hint">${tx('Arrastra para hacer un bucle', 'Drag to make a loop')}</span>`}
       </div>`;
     bindTimeline();
   }
@@ -1641,6 +1672,7 @@
   }
 
   function render() {
+    applyHelp();
     renderTimeline();
     renderControls();
     renderFile();
@@ -1709,6 +1741,14 @@
       $('tab-' + t).hidden = state.tab !== t;
       $('tab-btn-' + t).setAttribute('aria-selected', String(state.tab === t));
     });
+    // En el móvil las pestañas van en una fila que se desliza: la activa, a la vista.
+    const bar = document.querySelector('.tabs');
+    const item = $('tab-btn-' + state.tab).parentElement;
+    if (bar.scrollWidth > bar.clientWidth) {
+      const l = item.offsetLeft - bar.offsetLeft;
+      if (l < bar.scrollLeft) bar.scrollLeft = l - 8;
+      else if (l + item.offsetWidth > bar.scrollLeft + bar.clientWidth) bar.scrollLeft = l + item.offsetWidth - bar.clientWidth + 8;
+    }
   }
 
   function setTab(tab) {
@@ -1808,6 +1848,9 @@
       update();
     },
     more() { ui.more = !ui.more; renderNext(); },
+    'menu-toggle'() { setMenu(!$('top-menus').classList.contains('is-open')); },
+    'tr-more'() { ui.trMore = !ui.trMore; renderTransport(); },
+    fold(el) { ui.folds[el.dataset.v] = !ui.folds[el.dataset.v]; if (el.dataset.v === 'presets') renderPresets(); else renderField(); },
     preset(el) {
       stop();
       const p = presetsFor(key)[Number(el.dataset.i)];
@@ -2301,11 +2344,22 @@
     if (el && !el.disabled) ACTIONS[el.dataset.act](el);
   });
 
+  function setMenu(open) {
+    $('top-menus').classList.toggle('is-open', open);
+    $('menu-toggle').setAttribute('aria-expanded', String(open));
+    $('menu-toggle').textContent = open ? '✕' : '☰';
+  }
+
   document.addEventListener('click', (e) => {
     document.querySelectorAll('details.menu[open]').forEach((m) => {
       if (!m.contains(e.target)) m.open = false;
     });
+    if (!e.target.isConnected) return;
+    if ($('top-menus').classList.contains('is-open') && !e.target.closest('.top')) setMenu(false);
+    if (ui.trMore && !e.target.closest('#transport')) { ui.trMore = false; renderTransport(); }
   });
+  // Al pasar de móvil a escritorio (o al girar una tableta) se redibuja.
+  if (PHONE.addEventListener) PHONE.addEventListener('change', () => { setMenu(false); render(); });
 
   document.addEventListener('input', (e) => {
     if (e.target.dataset.ring !== undefined && e.target.type === 'range') ringInput(e.target);

@@ -549,3 +549,113 @@ body.is-reordering, body.is-reordering * { cursor: grabbing !important; }
 .export .field-title { flex-basis: 100%; font-size: 12px; color: var(--ink-2); }
 .export input[type="number"] { width: 56px; padding: 4px 6px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
 .exp-bars.is-off { opacity: .45; }
+
+/* Elementos que solo existen en el móvil (o solo en escritorio) */
+.menu-toggle, .tr-more-toggle, .tl-play, .phone-only { display: none; }
+.top-menus, .tr-more { display: contents; }
+h2 .fold-head { all: unset; font: inherit; }
+h2 .fold-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Ayuda y leyendas: se pueden ocultar desde Ajustes (en el móvil, de entrada) */
+body.hide-help .help, body.hide-help .vauto, body.hide-help .mel-sub, body.hide-help .next .legend,
+body.hide-help .tl-hint { display: none; }
+
+/* Móvil: lo esencial a mano y lo demás en menús */
+@media (max-width: 600px) {
+  .no-phone { display: none; }
+  .phone-only { display: revert; }
+  button, select, .menu summary { min-height: 36px; }
+
+  /* Cabecera en una fila: tónica, escala y el menú ☰ */
+  .top { flex-wrap: wrap; gap: 8px; padding-top: 8px; padding-bottom: 8px; }
+  .top h1 { font-size: 21px; }
+  #controls { flex: 1; min-width: 0; flex-wrap: nowrap; gap: 6px; }
+  #controls select { min-width: 0; }
+  #c-tonic { flex: 0 1 auto; max-width: 38%; }
+  #c-scale { flex: 1; }
+  .menu-toggle { display: inline-flex; align-items: center; justify-content: center; width: 40px; padding: 0; font-size: 18px; }
+  .menu-toggle[aria-expanded="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .top-menus {
+    display: none; flex-basis: 100%; flex-direction: column; gap: 10px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  }
+  .top-menus.is-open { display: flex; }
+  .top-menus #chord-opts { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+  .top-menus .seg { display: flex; }
+  .top-menus .seg button { flex: 1; }
+  .top-menus .menu summary { display: flex; align-items: center; justify-content: space-between; }
+  .top-menus .menu summary::after { content: "▾"; color: var(--ink-2); }
+  .top-menus .menu[open] summary::after { content: "▴"; }
+  .top-menus .menu-panel, .top-menus .menu-panel#file {
+    position: static; width: auto; max-width: none; margin-top: 6px; box-shadow: none; background: var(--paper);
+  }
+  .top-menus .lang { margin-left: 0; align-self: flex-start; }
+  .top-menus .lang button { min-height: 32px; padding: 3px 12px; }
+
+  /* Pestañas en una fila que se desliza; mute y solo solo en la activa
+     (en las demás, únicamente si están silenciadas o en solo) */
+  .tabbar { position: sticky; top: 0; z-index: 15; background: var(--paper); gap: 0; align-items: stretch; flex-direction: column; flex-wrap: nowrap; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 0 16px; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-item { flex: none; }
+  .tabs button[role="tab"] { min-height: 40px; white-space: nowrap; }
+  .tab-item:not(:has([aria-selected="true"])) .tab-mute[aria-pressed="false"]:not(.is-implied),
+  .tab-item:not(:has([aria-selected="true"])) .tab-solo[aria-pressed="false"] { display: none; }
+  .tabs .tab-mute, .tabs .tab-solo { min-height: 30px; min-width: 30px; justify-content: center; }
+  .tabs .tab-mute { margin-left: -6px; }
+  .tabs .tab-solo { height: 26px; min-height: 26px; min-width: 26px; line-height: 24px; font-size: 12px; margin-right: 8px; }
+
+  /* Transporte: tempo, bucle y deshacer; swing, ritmo y vaciar tras «⋯».
+     Reproducir está abajo, en la barra de la línea de tiempo. */
+  .transport { position: relative; flex-wrap: nowrap; padding: 4px 0 8px; gap: 6px; }
+  .transport > button.primary[data-act="play"] { display: none; }
+  .transport .bpm { flex: 1; min-width: 0; }
+  .transport .bpm input { flex: 1; min-width: 0; width: auto; }
+  .tr-more-toggle { display: inline-flex; align-items: center; justify-content: center; order: 5; width: 40px; padding: 0; font-size: 18px; line-height: 1; }
+  .transport.is-more .tr-more-toggle { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .tr-more {
+    display: none; position: absolute; top: calc(100% - 2px); right: 0; z-index: 16; width: min(320px, calc(100vw - 32px));
+    flex-direction: column; align-items: stretch; gap: 10px; padding: 12px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+  }
+  .transport.is-more .tr-more { display: flex; }
+  .tr-more .bpm.swing { flex-wrap: wrap; }
+  .tr-more .bpm.swing input { flex: 1; }
+  .tr-more select { width: 100%; }
+
+  /* Rejillas más fáciles de tocar */
+  .mel-grid { --cell: 30px; grid-auto-rows: minmax(22px, 1fr); min-height: calc(22px + var(--rows) * 22px); grid-template-columns: 40px repeat(var(--cols), minmax(var(--cell), 1fr)); }
+  .mel-grid.has-lyrics { min-height: calc(48px + var(--rows) * 22px); }
+  .mel-label { padding-right: 5px; }
+  .panel { padding: 10px 12px; }
+  .panel-head > .row { flex-wrap: wrap; }
+
+  /* Paneles plegables */
+  h2 .fold-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  h2 .fold-head::after { content: "▾"; font: 14px var(--sans); color: var(--ink-2); }
+  h2 .fold-head[aria-expanded="false"]::after { content: "▸"; }
+  .panel.is-folded > :not(.panel-head) { display: none; }
+  .panel.is-folded > .panel-head { margin-bottom: 0; }
+
+  /* Barra inferior: reproducir, tiempo, bucle y la línea de tiempo */
+  .timeline { padding: 6px 16px calc(8px + env(safe-area-inset-bottom)); gap: 6px 10px; }
+  .tl-play { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; font-size: 17px; border-radius: 50%; flex: none; }
+  .tl-right { margin-left: auto; }
+  .tl-hint { display: none; }
+  .tl-empty { flex: 1; }
+  .tl-bars { height: 24px; }
+}
+@media (max-width: 600px) {
+  /* Una pista de que hay más pestañas a la derecha */
+  .tabs { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .top-menus .export .seg button { white-space: nowrap; }
+}
+.tr-comp { display: contents; }
+@media (max-width: 600px) { .tr-comp { display: flex; } }
+.tr-more > [data-act="clear"] { order: 2; }
+@media (max-width: 600px) {
+  .stanza-seg { flex-wrap: wrap; gap: 4px; max-width: 100%; }
+  .stanza-seg .stanza-chip { margin-left: 0; border-radius: 6px; min-width: 38px; padding: 6px 8px; }
+  .stanza-label { font-size: 13px; }
+}
+.timeline.is-dense .tl-bar span { display: none; }

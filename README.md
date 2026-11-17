@@ -36,6 +36,9 @@ Spanish and English.
 - **Spanish and English**: the whole interface in either language, switched from the top right.
 - **Quick to use**: tabs for each part (switch with the `Tab` key), undo, keyboard shortcuts,
   and a layout that fits the window without scrolling.
+- **Made for phones too**: on a small screen the header folds into a ☰ menu, the tabs slide in
+  one row, play sits in the bottom bar next to the timeline, rarely used controls hide behind
+  “⋯”, and help texts stay out of the way (turn them back on in Settings).
 
 ## Progression
 

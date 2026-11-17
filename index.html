@@ -10,6 +10,9 @@
   <header class="top">
     <h1>Enlace</h1>
     <div class="controls" id="controls"></div>
+    <button class="menu-toggle" id="menu-toggle" data-act="menu-toggle" aria-expanded="false" aria-controls="top-menus" aria-label="Más opciones" data-en-label="More options">☰</button>
+    <div class="top-menus" id="top-menus">
+    <div class="controls" id="chord-opts"></div>
     <details class="menu">
       <summary data-en="Project">Proyecto</summary>
       <div class="menu-panel" id="file"></div>
@@ -23,6 +26,7 @@
       <div class="menu-panel" id="midi"></div>
     </details>
     <div class="lang" id="lang" role="group" aria-label="Idioma / Language"></div>
+    </div>
   </header>
 
   <nav class="tabbar">
